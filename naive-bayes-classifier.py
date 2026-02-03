@@ -1,44 +1,109 @@
 import math
-from collections import defaultdict
+from transformers import pipeline
 
-documents = [
-    ("satisfied", "service was quick and useful"),
-    ("unsatisfied", "slow response"),
-    ("satisfied", "happy with customer support"),
-    ("unsatisfied", "issue not resolved"),
-    ("satisfied", "support team was polite"),
-    ("unsatisfied", "poor customer care"),
-    ("satisfied", "good service experience"),
-    ("unsatisfied", "worst support experience"),
-    ("satisfied", "problem solved quickly"),
-    ("unsatisfied", "not helpful at all")
+# ----------------------------
+# Step 1: Dataset
+# ----------------------------
+
+satisfied = [
+    "service was quick and helpful",
+    "happy with customer support",
+    "support team was polite",
+    "good service experience",
+    "problem solved quickly"
 ]
 
-word_count = defaultdict(lambda: defaultdict(int))
-class_count = defaultdict(int)
-vocab = set()
+unsatisfied = [
+    "very slow response",
+    "issue not resolved",
+    "poor customer care",
+    "worst support ever",
+    "not helpful at all"
+]
 
-for label, text in documents:
-    class_count[label] += 1
-    words = text.split()
+# ----------------------------
+# Step 2: Naïve Bayes Implementation
+# ----------------------------
+
+# Count words in each class
+def word_count(feedback_list):
+    counts = {}
+    for feedback in feedback_list:
+        for word in feedback.split():
+            counts[word] = counts.get(word, 0) + 1
+    return counts
+
+satisfied_words = word_count(satisfied)
+unsatisfied_words = word_count(unsatisfied)
+
+# Prior probabilities
+total_feedbacks = len(satisfied) + len(unsatisfied)
+p_satisfied = len(satisfied) / total_feedbacks
+p_unsatisfied = len(unsatisfied) / total_feedbacks
+
+# Vocabulary and total words
+vocabulary = set(list(satisfied_words.keys()) + list(unsatisfied_words.keys()))
+V = len(vocabulary)
+total_satisfied_words = sum(satisfied_words.values())
+total_unsatisfied_words = sum(unsatisfied_words.values())
+
+# Naïve Bayes prediction function
+def predict_naive_bayes(feedback):
+    words = feedback.split()
+    satisfied_score = math.log(p_satisfied)
+    unsatisfied_score = math.log(p_unsatisfied)
+   
     for word in words:
-        word_count[label][word] += 1
-        vocab.add(word)
+        satisfied_score += math.log((satisfied_words.get(word, 0) + 1) / (total_satisfied_words + V))
+        unsatisfied_score += math.log((unsatisfied_words.get(word, 0) + 1) / (total_unsatisfied_words + V))
+   
+    if satisfied_score > unsatisfied_score:
+        return "Satisfied"
+    else:
+        return "Unsatisfied"
 
-def predict(text):
-    words = text.split()
-    scores = {}
+# ----------------------------
+# Step 3: Test Feedbacks
+# ----------------------------
 
-    for label in class_count:
-        scores[label] = math.log(class_count[label] / sum(class_count.values()))
-        
-        for word in words:
-            scores[label] += math.log(
-                (word_count[label][word] + 1) /
-                (sum(word_count[label].values()) + len(vocab))
-            )
+test_feedbacks = [
+    "quick and helpful service",
+    "poor customer support",
+    "support team was polite",
+    "very slow response",
+    "not helpful at all",
+    "happy with the service"
+]
 
-    return max(scores, key=scores.get)
+print("Naïve Bayes Predictions:\n")
+for feedback in test_feedbacks:
+    result = predict_naive_bayes(feedback)
+    print(f"Feedback: '{feedback}' -> Prediction: {result}")
 
-test_text = "quick and helpful service"
-print("Prediction:", predict(test_text))
+# ----------------------------
+# Step 4: Hugging Face Pretrained Model
+# ----------------------------
+
+# Load sentiment analysis pipeline
+classifier = pipeline(
+    "sentiment-analysis",
+    model="distilbert-base-uncased-finetuned-sst-2-english"
+)
+
+
+print("\nHugging Face Model Predictions:\n")
+for feedback in test_feedbacks:
+    result = classifier(feedback)[0]
+    label = "Satisfied" if result['label'] == "POSITIVE" else "Unsatisfied"
+    print(f"Feedback: '{feedback}' -> Prediction: {label} (Score: {result['score']:.2f})")
+
+# ----------------------------
+# Step 5: Comparison (Optional)
+# ----------------------------
+
+print("\nComparison Table:")
+print("Feedback".ljust(35), "Naive Bayes".ljust(15), "Hugging Face")
+for feedback in test_feedbacks:
+    nb_result = predict_naive_bayes(feedback)
+    hf_result = "Satisfied" if classifier(feedback)[0]['label'] == "POSITIVE" else "Unsatisfied"
+    print(feedback.ljust(35), nb_result.ljust(15), hf_result)
