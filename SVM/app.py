@@ -1,127 +1,87 @@
+# ============================================
+# Email Spam Detection using SVM (Streamlit)
+# ============================================
+
 import streamlit as st
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.decomposition import PCA
-from sklearn.svm import SVC
-from sklearn.metrics import confusion_matrix, accuracy_score, ConfusionMatrixDisplay
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.svm import LinearSVC
+from sklearn.metrics import accuracy_score
 
-# ---------------------------
-# Load and Train Model
-# ---------------------------
+# -------------------------------
+# 1. Page Configuration
+# -------------------------------
+st.set_page_config(page_title="Spam Detection App", page_icon="📧")
 
+st.title("📧 Email Spam Detection using SVM")
+st.write("This app classifies emails as Spam or Not Spam using Support Vector Machine.")
+
+# -------------------------------
+# 2. Load Dataset
+# -------------------------------
 @st.cache_data
-def load_and_train():
-    df = pd.read_csv("Iris.csv")
+def load_data():
+    data = pd.read_csv("../Datasets/spam.csv", encoding="latin-1")
+    data = data.iloc[:, :2]
+    data.columns = ['label', 'text']
+    data['label'] = data['label'].astype(str).str.lower().str.strip()
+    data['label'] = data['label'].map({'spam': 1, 'ham': 0})
+    data = data.dropna(subset=['label'])
+    return data
 
-    if "Id" in df.columns:
-        df = df.drop("Id", axis=1)
+data = load_data()
 
-    X = df.drop("Species", axis=1)
-    y = df["Species"]
+st.write("### Dataset Preview")
+st.dataframe(data.head())
 
-    le = LabelEncoder()
-    y = le.fit_transform(y)
+# -------------------------------
+# 3. Train Model
+# -------------------------------
+X = data['text']
+y = data['label']
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
-
-    pca = PCA(n_components=2)
-    X_train_pca = pca.fit_transform(X_train)
-    X_test_pca = pca.transform(X_test)
-
-    model = SVC(kernel='linear')
-    model.fit(X_train_pca, y_train)
-
-    y_pred = model.predict(X_test_pca)
-    acc = accuracy_score(y_test, y_pred)
-    cm = confusion_matrix(y_test, y_pred)
-
-    return model, scaler, pca, le, acc, cm, X_train_pca, y_train
-
-
-model, scaler, pca, le, acc, cm, X_train_pca, y_train = load_and_train()
-
-# ---------------------------
-# UI Layout
-# ---------------------------
-
-st.title("🌸 Iris Flower Classification using SVM")
-
-st.sidebar.header("Enter Flower Measurements")
-
-sepal_length = st.sidebar.number_input("Sepal Length", 4.0, 8.0, 5.1)
-sepal_width = st.sidebar.number_input("Sepal Width", 2.0, 5.0, 3.5)
-petal_length = st.sidebar.number_input("Petal Length", 1.0, 7.0, 1.4)
-petal_width = st.sidebar.number_input("Petal Width", 0.1, 2.5, 0.2)
-
-# ---------------------------
-# Prediction
-# ---------------------------
-
-if st.sidebar.button("Predict"):
-
-    input_data = np.array([[sepal_length, sepal_width, petal_length, petal_width]])
-
-    input_scaled = scaler.transform(input_data)
-    input_pca = pca.transform(input_scaled)
-
-    prediction = model.predict(input_pca)
-    species = le.inverse_transform(prediction)
-
-    st.subheader("Prediction Result")
-    st.success(f"Predicted Species: {species[0]}")
-
-# ---------------------------
-# Show Model Accuracy
-# ---------------------------
-
-st.subheader("Model Accuracy")
-st.write(f"Accuracy: {acc:.2f}")
-
-# ---------------------------
-# Show Confusion Matrix
-# ---------------------------
-
-st.subheader("Confusion Matrix")
-
-fig_cm, ax = plt.subplots()
-disp = ConfusionMatrixDisplay(confusion_matrix=cm,
-                              display_labels=le.classes_)
-disp.plot(ax=ax)
-st.pyplot(fig_cm)
-
-# ---------------------------
-# Decision Boundary Plot
-# ---------------------------
-
-st.subheader("SVM Decision Boundary (PCA Space)")
-
-x_min, x_max = X_train_pca[:, 0].min() - 1, X_train_pca[:, 0].max() + 1
-y_min, y_max = X_train_pca[:, 1].min() - 1, X_train_pca[:, 1].max() + 1
-
-xx, yy = np.meshgrid(
-    np.arange(x_min, x_max, 0.02),
-    np.arange(y_min, y_max, 0.02)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-Z = model.predict(np.c_[xx.ravel(), yy.ravel()])
-Z = Z.reshape(xx.shape)
+vectorizer = TfidfVectorizer(
+    stop_words='english',
+    max_df=0.95,
+    min_df=5,
+    ngram_range=(1, 2)
+)
 
-fig, ax = plt.subplots()
-ax.contourf(xx, yy, Z, alpha=0.3)
-ax.scatter(X_train_pca[:, 0], X_train_pca[:, 1], c=y_train, edgecolors='k')
+X_train_tfidf = vectorizer.fit_transform(X_train)
+X_test_tfidf = vectorizer.transform(X_test)
 
-ax.set_xlabel("Principal Component 1")
-ax.set_ylabel("Principal Component 2")
-ax.set_title("SVM Decision Boundary")
+svm_model = LinearSVC(C=1.0, max_iter=5000)
+svm_model.fit(X_train_tfidf, y_train)
 
-st.pyplot(fig)
+accuracy = accuracy_score(y_test, svm_model.predict(X_test_tfidf))
+
+st.success(f"Model trained successfully! Accuracy: {accuracy:.4f}")
+
+# -------------------------------
+# 4. User Input Section
+# -------------------------------
+st.write("## 🔍 Test New Email")
+
+user_input = st.text_area("Enter Email Text Here:")
+
+if st.button("Predict"):
+    if user_input.strip() != "":
+        input_tfidf = vectorizer.transform([user_input])
+        prediction = svm_model.predict(input_tfidf)[0]
+
+        if prediction == 1:
+            st.error("🚨 This is a Spam Email!")
+        else:
+            st.success("✅ This is NOT a Spam Email.")
+    else:
+        st.warning("Please enter some text.")
+
+# -------------------------------
+# 5. End
+# -------------------------------
+st.write("----")
